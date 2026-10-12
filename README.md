@@ -39,6 +39,8 @@ Galaxy schema: 3 fact tables share 4 conformed dimensions. All relationships are
 | dim_date | day | 791 |
 
 ## Report pages
+Full report export: **[report.pdf](report.pdf)**
+
 | Page | Screenshot |
 |---|---|
 | Executive Overview | [01_overview.png](screenshots/01_overview.png) |
@@ -79,5 +81,6 @@ Galaxy schema: 3 fact tables share 4 conformed dimensions. All relationships are
 ├── measures.dax          # all DAX measures
 ├── power_query/          # M code for each Dataflow Gen2 query
 ├── reference/            # Brazilian state lookup table
+├── report.pdf            # exported report (4 pages)
 └── screenshots/
 ```

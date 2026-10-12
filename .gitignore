@@ -6,5 +6,3 @@ reference/olist_order_reviews_slim.csv
 GUIDE.md
 RESUME.md
 ANSWER_KEY.md
-# exported PDF has Chinese number units; re-export in English before adding
-*.pdf
