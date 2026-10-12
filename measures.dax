@@ -1,0 +1,180 @@
+// =====================================================================
+// Olist E-Commerce: DAX 量值
+// 用法：Semantic model > Open data model > New measure，一次貼一個
+// 建議全部建在 fact_order_items 表，用 Display folder 分類
+// =====================================================================
+
+
+// ---------------------------------------------------------------------
+// 1. 營收（明細層級：fact_order_items）
+//    取消（canceled）與缺貨（unavailable）的訂單不算營收
+// ---------------------------------------------------------------------
+Revenue =
+CALCULATE (
+    SUM ( fact_order_items[price] ),
+    NOT fact_order_items[order_status] IN { "canceled", "unavailable" }
+)
+
+Freight =
+CALCULATE (
+    SUM ( fact_order_items[freight_value] ),
+    NOT fact_order_items[order_status] IN { "canceled", "unavailable" }
+)
+
+Freight % =
+DIVIDE ( [Freight], [Revenue] )
+
+Orders =
+CALCULATE (
+    DISTINCTCOUNT ( fact_order_items[order_id] ),
+    NOT fact_order_items[order_status] IN { "canceled", "unavailable" }
+)
+
+Items Sold =
+CALCULATE (
+    COUNTROWS ( fact_order_items ),
+    NOT fact_order_items[order_status] IN { "canceled", "unavailable" }
+)
+
+AOV =
+DIVIDE ( [Revenue], [Orders] )
+
+Avg Item Price =
+DIVIDE ( [Revenue], [Items Sold] )
+
+Active Sellers =
+DISTINCTCOUNT ( fact_order_items[seller_id] )
+
+
+// ---------------------------------------------------------------------
+// 2. 時間智慧（dim_date 必須連到 purchase_date）
+// ---------------------------------------------------------------------
+Revenue PY =
+CALCULATE ( [Revenue], SAMEPERIODLASTYEAR ( dim_date[Date] ) )
+
+Revenue YoY % =
+DIVIDE ( [Revenue] - [Revenue PY], [Revenue PY] )
+
+Revenue PM =
+CALCULATE ( [Revenue], DATEADD ( dim_date[Date], -1, MONTH ) )
+
+Revenue MoM % =
+DIVIDE ( [Revenue] - [Revenue PM], [Revenue PM] )
+
+Revenue YTD =
+TOTALYTD ( [Revenue], dim_date[Date] )
+
+Revenue Rolling 3M =
+CALCULATE (
+    [Revenue],
+    DATESINPERIOD ( dim_date[Date], MAX ( dim_date[Date] ), -3, MONTH )
+)
+
+
+// ---------------------------------------------------------------------
+// 3. 顧客（用 customer_unique_id；customer_id 每張訂單都不一樣）
+// ---------------------------------------------------------------------
+Customers =
+DISTINCTCOUNT ( fact_orders[customer_unique_id] )
+
+// FILTER 逐一顧客跑，CALCULATE 觸發 context transition，算出「這個顧客」的訂單數
+Repeat Customers =
+COUNTROWS (
+    FILTER (
+        VALUES ( fact_orders[customer_unique_id] ),
+        CALCULATE ( COUNTROWS ( fact_orders ) ) > 1
+    )
+)
+
+Repeat Customer Rate =
+DIVIDE ( [Repeat Customers], [Customers] )
+
+
+// ---------------------------------------------------------------------
+// 4. 物流與評價（訂單層級：fact_orders）
+// ---------------------------------------------------------------------
+Total Orders (All Status) =
+COUNTROWS ( fact_orders )
+
+Cancellation Rate =
+DIVIDE (
+    CALCULATE ( COUNTROWS ( fact_orders ), fact_orders[order_status] IN { "canceled", "unavailable" } ),
+    COUNTROWS ( fact_orders )
+)
+
+Avg Delivery Days =
+AVERAGE ( fact_orders[delivery_days] )
+
+// is_late 是 1/0/null，平均值就是延遲比例（null 會被忽略）
+Late Delivery % =
+AVERAGE ( fact_orders[is_late] )
+
+Avg Review Score =
+AVERAGE ( fact_orders[review_score] )
+
+// 注意：DAX 裡 BLANK <= 2 會是 TRUE（空白被當成 0），所以要另外排除沒有評分的訂單
+Low Review % =
+DIVIDE (
+    CALCULATE (
+        COUNTROWS ( fact_orders ),
+        fact_orders[review_score] <= 2,
+        NOT ISBLANK ( fact_orders[review_score] )
+    ),
+    CALCULATE ( COUNTROWS ( fact_orders ), NOT ISBLANK ( fact_orders[review_score] ) )
+)
+
+
+// ---------------------------------------------------------------------
+// 5. 付款（fact_payments 透過 order_id 連到 fact_orders）
+// ---------------------------------------------------------------------
+Payment Value =
+SUM ( fact_payments[payment_value] )
+
+Payment Share % =
+DIVIDE ( [Payment Value], CALCULATE ( [Payment Value], ALLSELECTED ( fact_payments[payment_type] ) ) )
+
+Avg Installments (Credit Card) =
+CALCULATE ( AVERAGE ( fact_payments[payment_installments] ), fact_payments[payment_type] = "Credit Card" )
+
+
+// ---------------------------------------------------------------------
+// 6. 跨事實表：用「商品/品類/賣家」看評價與延遲
+//    品類、賣家篩選的是 fact_order_items，但評分在 fact_orders。
+//    兩表沒有關聯，用 TREATAS 把目前看得到的 order_id 套到 fact_orders。
+// ---------------------------------------------------------------------
+Avg Review (by Item) =
+CALCULATE (
+    [Avg Review Score],
+    TREATAS ( VALUES ( fact_order_items[order_id] ), fact_orders[order_id] )
+)
+
+Late Delivery % (by Item) =
+CALCULATE (
+    [Late Delivery %],
+    TREATAS ( VALUES ( fact_order_items[order_id] ), fact_orders[order_id] )
+)
+
+Low Review % (by Item) =
+CALCULATE (
+    [Low Review %],
+    TREATAS ( VALUES ( fact_order_items[order_id] ), fact_orders[order_id] )
+)
+
+
+// ---------------------------------------------------------------------
+// 7. 加分題：營收集中度（前 10% 賣家占多少營收）
+// ---------------------------------------------------------------------
+Top 10% Seller Revenue Share =
+// 只算有營收的賣家（只有取消訂單的賣家不算）
+VAR SellerRevenue =
+    FILTER ( ADDCOLUMNS ( VALUES ( fact_order_items[seller_id] ), "@Rev", [Revenue] ), [@Rev] > 0 )
+VAR TenPercentCount =
+    ROUNDUP ( COUNTROWS ( SellerRevenue ) * 0.1, 0 )
+VAR TopSellers =
+    TOPN ( TenPercentCount, SellerRevenue, [@Rev], DESC )
+RETURN
+    DIVIDE ( SUMX ( TopSellers, [@Rev] ), SUMX ( SellerRevenue, [@Rev] ) )
+
+// 動態標題（視覺效果 Title > fx > Field value）
+Dynamic Title =
+"Revenue – " & IF ( HASONEVALUE ( dim_date[Year] ), VALUES ( dim_date[Year] ), "All Years" )

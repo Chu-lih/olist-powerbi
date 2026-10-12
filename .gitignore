@@ -1,0 +1,10 @@
+archive/
+archive.zip
+.DS_Store
+reference/olist_order_reviews_slim.csv
+# personal study notes (not part of the portfolio)
+GUIDE.md
+RESUME.md
+ANSWER_KEY.md
+# exported PDF has Chinese number units; re-export in English before adding
+*.pdf
